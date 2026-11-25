@@ -1,0 +1,65 @@
+name: Build Android APK
+
+on:
+  # Run it by hand: Actions tab > Build Android APK > Run workflow
+  workflow_dispatch:
+    inputs:
+      api_base:
+        description: "Backend address, e.g. https://api.yourdomain.com/api (must be https)"
+        required: false
+  # ...and rebuild automatically whenever the app code changes
+  push:
+    branches: [main]
+    paths: ["safeguard-app/**", ".github/workflows/build-android.yml"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      API_BASE: ${{ inputs.api_base || vars.API_BASE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the backend address is set
+        run: |
+          if [ -z "$API_BASE" ]; then
+            echo "Set a repository variable named API_BASE (Settings > Secrets and variables > Actions > Variables), or type it when you run the workflow."
+            exit 1
+          fi
+          case "$API_BASE" in https://*) ;; *) echo "API_BASE must start with https:// for release builds"; exit 1;; esac
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # The repo only holds lib/ and pubspec.yaml. Generate the Android project around them.
+      - name: Create Android project and add the app code
+        run: |
+          flutter create --org net.safeguardsafety --project-name safeguard_app --platforms=android "$RUNNER_TEMP/proj"
+          rm -rf "$RUNNER_TEMP/proj/lib" "$RUNNER_TEMP/proj/test" "$RUNNER_TEMP/proj/pubspec.yaml"
+          cp -r safeguard-app/lib safeguard-app/pubspec.yaml "$RUNNER_TEMP/proj/"
+
+      - name: Allow internet access in the release build
+        working-directory: ${{ runner.temp }}/proj
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' "$M" || sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.INTERNET"\/>/' "$M"
+          grep -q 'android.permission.INTERNET' "$M" || { echo "Could not add INTERNET permission"; exit 1; }
+
+      - name: Build APK
+        working-directory: ${{ runner.temp }}/proj
+        run: |
+          flutter pub get
+          flutter build apk --release --dart-define=API_BASE="$API_BASE"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: safeguard-app-apk
+          path: ${{ runner.temp }}/proj/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
