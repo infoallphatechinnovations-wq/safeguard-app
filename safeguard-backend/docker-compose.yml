@@ -1,0 +1,14 @@
+# Local PostgreSQL with the schema loaded automatically on first start
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: safeguard
+      POSTGRES_PASSWORD: safeguard
+      POSTGRES_DB: safeguard
+    ports: ["5432:5432"]
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
